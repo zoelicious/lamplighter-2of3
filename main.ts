@@ -1,41 +1,64 @@
-// A working best-game-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. A starting point, not a winner: Block Dodger, a
-// plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a title screen,
-// score, lives and levels, game over and restart, flat colours and no sound. Build your own game
-// (any genre, any library you vendor under game/, or none), put your 3 or 4 PNG or JPEG screenshots
-// in screenshots/ (the first by name is the cover) and run it.
+// Lamplighter — hand-in script for the best-stealth entry (Agent 3, round 2).
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// What this file does, in plain terms: it takes the finished game in game/
+// (plain static files: game/index.html plus its modules, no network calls)
+// together with the four JPEG stills in screenshots/, stages both folders
+// into the grader's output directory, and then asks the vendored make.fun
+// helper to write the dossier.json summary the judge reads from that
+// staged copy. Nothing here edits the game itself; it only packs it.
+//
+// Run it outside the grader with an override directory, for example:
+//   mkdir -p /tmp/lamp-out && MAKEFUN_OUTPUT_DIR=/tmp/lamp-out node main.ts
+// Local preview of the game itself stays on `node serve.ts`.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { buildDossier } from './vendor/makefun-game.ts';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join as joinPath } from "node:path";
+import { fileURLToPath as urlToPath } from "node:url";
+import { buildDossier } from "./vendor/makefun-game.ts";
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+// Folder this script lives in, and the folder the grader collects from.
+// The override is honoured exactly as given: never resolved against the
+// working directory, never joined onto another path.
+const repoRoot = urlToPath(new URL(".", import.meta.url));
+const handInDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+// Caps the scorer enforces (see the kit's gate reference): at most four
+// stills, none over 256 KiB; at most 993 files and 48 MiB under game/, and
+// no game path longer than 1000 bytes. The dossier text budget is 160 KiB.
+const dossierLimits = {
+  text_max_bytes: 163840,
+  screenshots: {
+    max: 4,
+    max_bytes: 262144,
+  },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
+};
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
-// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+// Copy one folder from the repo into the hand-in directory, creating the
+// destination first so the copy never fails on a missing parent.
+function stageFolder(folderName) {
+  const from = joinPath(repoRoot, folderName);
+  const to = joinPath(handInDir, folderName);
+  mkdirSync(to, { recursive: true });
+  cpSync(from, to, { recursive: true });
+  console.log(`Lamplighter: staged ${folderName}/ into the hand-in folder.`);
+}
+
+mkdirSync(handInDir, { recursive: true });
+stageFolder("game");
+
+// The stills folder may be absent from the repo, but the hand-in folder always gets
+// the directory itself so the dossier step sees a stable layout.
+const stillsSource = joinPath(repoRoot, "screenshots");
+const stillsTarget = joinPath(handInDir, "screenshots");
+mkdirSync(stillsTarget, { recursive: true });
+if (existsSync(stillsSource)) {
+  cpSync(stillsSource, stillsTarget, { recursive: true });
+  console.log("Lamplighter: staged screenshots/ into the hand-in folder.");
+}
+
+const dossierBytes = buildDossier(handInDir, dossierLimits);
+writeFileSync(joinPath(handInDir, "dossier.json"), dossierBytes);
+console.log(`Lamplighter: hand-in ready at ${handInDir} (dossier.json written).`);
